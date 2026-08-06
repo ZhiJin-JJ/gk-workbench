@@ -167,10 +167,16 @@
           allowEditing: false,
           resultType: 'DataUrl',
           source: useCamera ? 'CAMERA' : 'PROMPT',
-          saveToGallery: false,
+          saveToGallery: true, // 同时存入系统相册
         });
-        if (!photo || !photo.base64String) return [];
-        const blob = b64ToBlob(photo.base64String, 'image/jpeg');
+        // Android 上 base64String 有时为空，回退用 dataUrl 解析
+        let b64 = photo && photo.base64String;
+        if (!b64 && photo && photo.dataUrl) b64 = String(photo.dataUrl).split(',')[1];
+        if (!b64) {
+          ui.toast('拍照获取图片失败，请重试');
+          return [];
+        }
+        const blob = b64ToBlob(b64, 'image/jpeg');
         const compressed = await compress(blob);
         const id = await media.put(compressed, { kind: 'photo', name: 'camera.jpg' });
         return [id];
@@ -322,5 +328,5 @@
     return api;
   }
 
-  App.media = Object.assign(media, { pickPhotos, compress, speech, createRecorder, blobToB64, b64ToBlob, recordSupported: !!(navigator.mediaDevices && window.MediaRecorder) });
+  App.media = Object.assign(media, { pickPhotos, compress, speech, createRecorder, blobToB64, b64ToBlob, recordSupported: isNative() ? true : !!(navigator.mediaDevices && window.MediaRecorder) });
 })();

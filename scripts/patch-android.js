@@ -1,8 +1,9 @@
 // 在 cap sync 之后自动给生成的安卓工程打补丁：
-// 1) 覆写 WebChromeClient.onPermissionRequest，让 WebView 内的 getUserMedia（录音/相机）
-//    能拿到 Web 层授权。否则 Capacitor 默认会拒绝 WebView 的媒体权限请求。
-// 2) 覆写 onCreate，主动申请 Android 系统运行时危险权限（RECORD_AUDIO / CAMERA）。
-//    Web 层授权只是第一道关；系统层若未授权，getUserMedia 仍会被系统拒绝，麦克风因此失效。
+// 让 WebView 内的 getUserMedia（录音/相机）能正常工作。
+// 关键：Android 运行时危险权限（RECORD_AUDIO / CAMERA）必须在「用户手势」上下文里申请，
+// 否则很多 ROM（尤其国产）不会弹授权窗，导致 getUserMedia 被系统拒绝、麦克风失效。
+// 做法：覆写 WebChromeClient.onPermissionRequest —— 它本就在用户点录音时触发（用户手势），
+// 在其中申请系统运行时权限，授权后再放行 Web 层媒体权限；并在 onCreate 做一次预申请作为兜底。
 // 仅 patch，出错也退出 0，避免阻断整体构建（媒体能力为尽力而为）。
 
 const fs = require('fs');
@@ -49,25 +50,40 @@ import android.content.pm.PackageManager;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import android.Manifest;
+import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
   private static final int REQ_REC_PERM = 0x51a; // 媒体运行时权限请求码
+  private PermissionRequest pendingMediaRequest = null;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    // 主动申请麦克风 / 相机系统运行时权限，否则 WebView 内 getUserMedia 会被系统拒绝
+    // 冷启动预申请媒体权限（部分 ROM 在 onCreate 阶段不弹窗，仅作为兜底；真正的弹窗在 onPermissionRequest 中）
+    requestMediaPermissionsIfNeeded();
+  }
+
+  private void requestMediaPermissionsIfNeeded() {
     String[] perms = { Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA };
-    boolean need = false;
+    ArrayList<String> need = new ArrayList<>();
     for (String p : perms) {
-      if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) need = true;
+      if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) need.add(p);
     }
-    if (need) ActivityCompat.requestPermissions(this, perms, REQ_REC_PERM);
+    if (!need.isEmpty()) {
+      ActivityCompat.requestPermissions(this, need.toArray(new String[0]), REQ_REC_PERM);
+    }
   }
 
   @Override
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    if (requestCode == REQ_REC_PERM && pendingMediaRequest != null) {
+      boolean granted = true;
+      for (int g : grantResults) if (g != PackageManager.PERMISSION_GRANTED) granted = false;
+      if (granted) pendingMediaRequest.grant(pendingMediaRequest.getResources());
+      else pendingMediaRequest.deny();
+      pendingMediaRequest = null;
+    }
   }
 
   @Override
@@ -78,7 +94,19 @@ public class MainActivity extends BridgeActivity {
         runOnUiThread(new Runnable() {
           @Override
           public void run() {
-            request.grant(request.getResources());
+            // 用户点录音触发此处 = 用户手势上下文，ROM 会正常弹窗。
+            // 先确保系统运行时权限已授予，再放行 Web 层媒体权限。
+            String[] perms = { Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA };
+            ArrayList<String> need = new ArrayList<>();
+            for (String p : perms) {
+              if (ContextCompat.checkSelfPermission(MainActivity.this, p) != PackageManager.PERMISSION_GRANTED) need.add(p);
+            }
+            if (need.isEmpty()) {
+              request.grant(request.getResources());
+            } else {
+              pendingMediaRequest = request;
+              ActivityCompat.requestPermissions(MainActivity.this, need.toArray(new String[0]), REQ_REC_PERM);
+            }
           }
         });
       }
@@ -87,7 +115,7 @@ public class MainActivity extends BridgeActivity {
 }
 `;
   fs.writeFileSync(file, patched, 'utf8');
-  console.log('[patch-android] 已为 ' + file + ' 注入 WebView 媒体授权 + 运行时权限申请');
+  console.log('[patch-android] 已为 ' + file + ' 注入 WebView 媒体授权 + 用户手势权限申请');
 }
 
 try {
