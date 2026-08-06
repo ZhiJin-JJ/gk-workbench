@@ -1,0 +1,95 @@
+name: Build Android APK (Release 签名版，云端构建)
+
+# 触发：推送到 main/master 时自动构建；也可在 Actions 页手动 Run workflow
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  KEY_ALIAS: gk   # 密钥别名（固定，无需作为 secret）
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建前端到 dist/
+        run: npm run build
+
+      - name: 配置 Java JDK 17（云端，含 keytool）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 配置 Android SDK（云端已含，无需本机安装）
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Android 编译组件
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager --licenses || true
+
+      - name: 缓存签名密钥（首次生成后持久复用，保证 App 可覆盖更新）
+        uses: actions/cache@v4
+        with:
+          path: keystore
+          key: android-signing-keystore-v1
+
+      - name: 生成或复用签名密钥
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          if [ ! -f keystore/release.keystore ]; then
+            keytool -genkey -v -keystore keystore/release.keystore \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" \
+              -dname "CN=GK Workbench, OU=Personal"
+            echo "首次生成签名密钥完成"
+          else
+            echo "复用已缓存签名密钥"
+          fi
+
+      - name: 生成 Android 工程并同步
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: 放入签名密钥
+        run: cp keystore/release.keystore android/release.keystore
+
+      - name: 编译签名 Release APK
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$(pwd)/release.keystore" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEYSTORE_PASSWORD"
+
+      - name: 备份签名密钥（供下载留存，切勿泄露）
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-keystore-backup
+          path: keystore/release.keystore
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: gk-workbench-apk
+          path: android/app/build/outputs/apk/release/*.apk

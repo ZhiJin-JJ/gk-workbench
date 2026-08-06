@@ -1,0 +1,23 @@
+{
+  "name": "gk-workbench",
+  "version": "1.0.0",
+  "description": "公务员考试备考工作台（PWA + Capacitor 原生壳）",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server-api.mjs 5173",
+    "qr": "node qrcode.mjs 5173",
+    "build": "node build-app.mjs",
+    "cap:sync": "node build-app.mjs && npx cap sync",
+    "cap:android": "npx cap add android || npx cap sync",
+    "cap:ios": "npx cap add ios || npx cap sync",
+    "apk": "npx cap add android >nul 2>&1 & npx cap sync android && npx cap build android"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.0",
+    "@capacitor/core": "^6.1.0",
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/ios": "^6.1.0",
+    "qrcode": "^1.5.4"
+  }
+}

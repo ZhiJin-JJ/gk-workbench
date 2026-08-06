@@ -1,0 +1,19 @@
+{
+  "name": "公考工作台",
+  "short_name": "公考台",
+  "description": "公务员考试备考工作台：刷题、错题、复盘、打卡、试卷、计划",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBF3F6",
+  "theme_color": "#F6C9D3",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
