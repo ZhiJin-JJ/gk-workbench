@@ -243,8 +243,8 @@
   };
 
   /* ---------------- 录音器 ---------------- */
-  function createRecorder() {
-    if (isNative() && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+  function createRecorder(forceWeb) {
+    if (!forceWeb && isNative() && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
       return nativeAsrRecorder();
     }
     let mr = null,
@@ -343,27 +343,37 @@
       levels: new Array(28).fill(6),
       onTick: null, // (seconds, levels)
       onResult: null, // (finalText, interim)
+      onError: null, // (message)
       _t0: 0,
       _timer: 0,
       _handle: null,
+      _errHandle: null,
       _text: '',
       get seconds() {
         return this._t0 ? (Date.now() - this._t0) / 1000 : 0;
       },
       async start() {
         const a = await P.available().catch(() => null);
-        if (!a || !a.available) throw new Error('设备不支持语音识别');
+        const ok = a && (a.available === true || a === true);
+        if (!ok) throw new Error('设备不支持语音识别（缺少语音识别服务）');
         await P.requestPermissions().catch(() => {});
         this._handle = await P.addListener('partialResults', (d) => {
-          const m = (d && d.matches) || [];
-          if (!m.length) return;
-          this._text = m[0];
+          const m = (d && (d.matches || d.value || d.transcript)) || [];
+          const arr = Array.isArray(m) ? m : m ? [m] : [];
+          if (!arr.length) return;
+          this._text = arr[0];
           if (api.onResult) api.onResult(this._text, '');
           const lv = 10 + Math.round(Math.random() * 16);
           api.levels.push(lv);
           api.levels.shift();
           if (api.onTick) api.onTick(api.seconds, api.levels);
         });
+        // 部分设备识别失败/无网络会触发 error 事件
+        try {
+          this._errHandle = await P.addListener('error', (e) => {
+            if (api.onError) api.onError((e && (e.message || JSON.stringify(e))) || '语音识别出错');
+          });
+        } catch (err) {}
         await P.start({ language: 'zh-CN', partialResults: true, popup: false, maxResults: 1 });
         this._t0 = Date.now();
         this._timer = setInterval(() => {
@@ -377,11 +387,9 @@
         clearInterval(this._timer);
         return new Promise((res) => {
           const done = () => {
-            if (this._handle) {
-              try { this._handle.remove(); } catch (e) {}
-              this._handle = null;
-            }
-            res({ id: null, dur: api.seconds, size: 0 });
+            if (this._handle) { try { this._handle.remove(); } catch (e) {} this._handle = null; }
+            if (this._errHandle) { try { this._errHandle.remove(); } catch (e) {} this._errHandle = null; }
+            res({ id: null, dur: api.seconds, size: 0, text: this._text });
           };
           P.stop().catch(() => {}).finally(done);
         });
@@ -391,6 +399,7 @@
         try {
           P.stop().catch(() => {});
           if (this._handle) { this._handle.remove().catch(() => {}); this._handle = null; }
+          if (this._errHandle) { this._errHandle.remove().catch(() => {}); this._errHandle = null; }
         } catch (e) {}
       },
     };
