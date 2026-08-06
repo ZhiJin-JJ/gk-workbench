@@ -45,6 +45,7 @@ node server-api.mjs 8080
 ## 四、打包成真正的安装包（APK / iOS）
 
 > 前置：`npm install`（安装 Capacitor 工具链），需要 Node ≥ 18。
+> **本机出 APK 需要**：Java JDK 17 + Android SDK（含 build-tools / platform）。若本机不想装，**直接看下方"云构建 APK"**，零环境依赖。
 
 ```powershell
 npm install
@@ -70,9 +71,39 @@ npx cap open ios      # 用 Xcode 打开，需登录苹果开发者账号后 Arc
 
 Capacitor 打包出的 App 内部是静态网页，**没有内置后端**。要让 App 也能同步，必须让 App 连到运行中的 `server-api.mjs`：
 
-- 如果你有**公网服务器**：把 `server-api.mjs` 部署上去，并把 `capacitor.config.js` 里的 `server.url` 改成该地址，再打包。
+- 如果你有**公网服务器**：把 `server-api.mjs` 部署上去，并把 `capacitor.config.json` 里的 `server.url` 改成该地址，再打包。
 - 如果只在**同一 Wi-Fi 内**用：把 `server.url` 改成 `http://<电脑局域网IP>:<实际端口>`（实际端口见启动窗口，默认 5173 但可能被自动避让），且电脑始终保持运行该服务。
 - 若**不配 server.url**：打包出的 App 仍可使用，但只能用本地数据、不跨设备同步（等于纯离线 App）。
+
+### 云构建 APK（推荐，本机无需 Android SDK / JDK）
+
+不想在本机装 Android SDK、Java、Gradle？项目自带 `.github/workflows/build-apk.yml`，**推到 GitHub 后由云端自动编译出签名 Release APK**，本机零环境依赖。
+
+> 原理：GitHub 云端自带 JDK17 + Android SDK，自动生成签名密钥（缓存复用，保证 App 可覆盖更新），编译产物作为 Artifact 供下载。
+
+**步骤：**
+
+1. **创建 GitHub 仓库**（如 `gk-workbench`，Private/Public 均可，不要勾 Add README）。
+2. **推送代码**（仓库里已含工作流文件，推送即触发构建）：
+   ```powershell
+   git init
+   git add .
+   git commit -m "init"
+   git branch -M main
+   git remote add origin https://github.com/<你的用户名>/gk-workbench.git
+   git push -u origin main
+   ```
+   > 没有 git 命令行？装 **GitHub Desktop**，Add Local Repository 选 `D:\ai-g`，Commit 后 Publish 即可。
+3. **设一个 Secret**（GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret）：
+   - Name：`KEYSTORE_PASSWORD`
+   - Secret：你自己定的密码（记好，更新 App 时要用）
+   > 注意：密钥别名固定为 `gk`，已在工作流里写死，无需额外设置。
+4. **去 Actions 标签**，等构建完成（约 5–10 分钟）。若首次因密钥未设而失败，设好 Secret 后点 **Re-run jobs** 重跑。
+5. **下载产物**（构建详情底部 Artifacts）：
+   - `gk-workbench-apk` → 解压得 `app-release.apk`（正式签名版，手机允许"未知来源"安装）
+   - `signing-keystore-backup` → **务必留存**，以后云端缓存丢了用它恢复同把密钥才能覆盖更新 App
+
+⚠️ 关键提醒：`signing-keystore-backup` 是你 App 的"身份证"，换电脑/重装都要靠它更新 App，请勿泄露、勿进 Git。
 
 ## 五、目录说明
 
@@ -85,6 +116,9 @@ manifest.webmanifest PWA 清单
 sw.js               Service Worker（离线缓存）
 build-app.mjs       构建 dist/ 供 Capacitor 使用
 start.bat           Windows 一键启动
+capacitor.config.json  Capacitor 打包配置（JSON 格式，兼容性好）
+.github/workflows/build-apk.yml  云端签名 Release 构建工作流
+push.bat / push_token.bat  一键推送脚本（调用 GitHub Desktop 自带 git）
 .data/              运行后生成，存放账号与同步数据
 ```
 
