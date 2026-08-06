@@ -212,8 +212,13 @@
   /* ---------------- 语音识别 ---------------- */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const speech = {
-    supported: !!SR,
+    // 原生环境用 @capacitor-community/speech-recognition 插件（识别逻辑由 createRecorder 内部的 nativeAsrRecorder 接管）
+    native: isNative() && !!(window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition),
+    supported: isNative()
+      ? !!(window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition)
+      : !!SR,
     create(onResult, onEnd) {
+      if (isNative()) return null; // 原生识别由 createRecorder 内部处理，不重复创建
       if (!SR) return null;
       const r = new SR();
       r.lang = 'zh-CN';
@@ -239,6 +244,9 @@
 
   /* ---------------- 录音器 ---------------- */
   function createRecorder() {
+    if (isNative() && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+      return nativeAsrRecorder();
+    }
     let mr = null,
       stream = null,
       chunks = [],
@@ -325,6 +333,67 @@
       analyser = null;
     }
 
+    return api;
+  }
+
+  /* ---------------- 原生语音识别录音器（安卓麦克风独占，仅识别、不另录音频） ---------------- */
+  function nativeAsrRecorder() {
+    const P = window.Capacitor.Plugins.SpeechRecognition;
+    const api = {
+      levels: new Array(28).fill(6),
+      onTick: null, // (seconds, levels)
+      onResult: null, // (finalText, interim)
+      _t0: 0,
+      _timer: 0,
+      _handle: null,
+      _text: '',
+      get seconds() {
+        return this._t0 ? (Date.now() - this._t0) / 1000 : 0;
+      },
+      async start() {
+        const a = await P.available().catch(() => null);
+        if (!a || !a.available) throw new Error('设备不支持语音识别');
+        await P.requestPermissions().catch(() => {});
+        this._handle = await P.addListener('partialResults', (d) => {
+          const m = (d && d.matches) || [];
+          if (!m.length) return;
+          this._text = m[0];
+          if (api.onResult) api.onResult(this._text, '');
+          const lv = 10 + Math.round(Math.random() * 16);
+          api.levels.push(lv);
+          api.levels.shift();
+          if (api.onTick) api.onTick(api.seconds, api.levels);
+        });
+        await P.start({ language: 'zh-CN', partialResults: true, popup: false, maxResults: 1 });
+        this._t0 = Date.now();
+        this._timer = setInterval(() => {
+          const lv = 8 + Math.round(Math.random() * 14);
+          api.levels.push(lv);
+          api.levels.shift();
+          if (api.onTick) api.onTick(api.seconds, api.levels);
+        }, 200);
+      },
+      stop() {
+        clearInterval(this._timer);
+        return new Promise((res) => {
+          const done = () => {
+            if (this._handle) {
+              try { this._handle.remove(); } catch (e) {}
+              this._handle = null;
+            }
+            res({ id: null, dur: api.seconds, size: 0 });
+          };
+          P.stop().catch(() => {}).finally(done);
+        });
+      },
+      cancel() {
+        clearInterval(this._timer);
+        try {
+          P.stop().catch(() => {});
+          if (this._handle) { this._handle.remove().catch(() => {}); this._handle = null; }
+        } catch (e) {}
+      },
+    };
     return api;
   }
 

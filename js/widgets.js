@@ -15,11 +15,11 @@
       .map((_, i) => `<i style="height:${6 + ((i * 5) % 13)}px;animation-delay:${(i % 7) * 0.08}s"></i>`)
       .join('');
     const row = u.el(`<div class="voice-row">
-      <div class="voice-bar" style="width:${w}px">
+      ${a.id ? `<div class="voice-bar" style="width:${w}px">
         <span class="vb-play">${ui.icon('play', 18)}</span>
         <span class="waves">${waves}</span>
         <span class="vb-dur">${dur}"</span>
-      </div>
+      </div>` : ''}
       ${a.text ? `<button class="icon-btn plain" data-t title="语音转文字">${ui.icon('text', 17)}</button>` : ''}
       ${onDel ? `<button class="icon-btn plain" data-d>${ui.icon('trash', 17)}</button>` : ''}
       ${a.text ? `<div class="voice-text">${u.esc(a.text)}</div>` : ''}
@@ -27,25 +27,27 @@
 
     const bar = row.querySelector('.voice-bar');
     let audio = null;
-    bar.onclick = async () => {
-      if (audio && !audio.paused) {
-        audio.pause();
-        audio.currentTime = 0;
-        bar.classList.remove('playing');
-        bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
-        return;
-      }
-      const url = await media.url(a.id);
-      if (!url) return ui.toast('语音文件已丢失');
-      audio = new Audio(url);
-      audio.play().catch(() => ui.toast('播放失败'));
-      bar.classList.add('playing');
-      bar.querySelector('.vb-play').innerHTML = ui.icon('pause', 18);
-      audio.onended = () => {
-        bar.classList.remove('playing');
-        bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
+    if (bar) {
+      bar.onclick = async () => {
+        if (audio && !audio.paused) {
+          audio.pause();
+          audio.currentTime = 0;
+          bar.classList.remove('playing');
+          bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
+          return;
+        }
+        const url = await media.url(a.id);
+        if (!url) return ui.toast('语音文件已丢失');
+        audio = new Audio(url);
+        audio.play().catch(() => ui.toast('播放失败'));
+        bar.classList.add('playing');
+        bar.querySelector('.vb-play').innerHTML = ui.icon('pause', 18);
+        audio.onended = () => {
+          bar.classList.remove('playing');
+          bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
+        };
       };
-    };
+    }
     const tBtn = row.querySelector('[data-t]');
     if (tBtn) {
       const tx = row.querySelector('.voice-text');
@@ -97,11 +99,20 @@
             timeEl.textContent = u.clock(sec);
             liveBars.forEach((b, i) => (b.style.height = (levels[levels.length - liveBars.length + i] || 5) + 'px'));
           };
+          // 原生环境：语音识别由 createRecorder 内部处理（rec.onResult），避免麦克风被录音与识别同时占用
+          if (media.speech.native) {
+            rec.onResult = (f, i) => {
+              finalText = f;
+              interim = i;
+              paint();
+            };
+          }
           await rec.start();
           state = 'rec';
           micEl.classList.add('on');
-          hintEl.textContent = '正在录音…再次点击话筒结束';
-          if (media.speech.supported) {
+          hintEl.textContent = media.speech.native ? '正在聆听…再次点击话筒结束' : '正在录音…再次点击话筒结束';
+          // 浏览器环境：用 webkitSpeechRecognition 边录边识别
+          if (!media.speech.native && media.speech.supported) {
             sr = media.speech.create((f, i) => {
               finalText = f;
               interim = i;
@@ -110,8 +121,6 @@
             try {
               sr.start();
             } catch (e) {}
-          } else {
-            hintEl.textContent = '正在录音…（当前浏览器不支持自动转文字，可稍后手动补充）';
           }
         } catch (e) {
           ui.toast('无法访问麦克风：' + (e.message || e.name));
@@ -131,8 +140,10 @@
         const r = await rec.stop();
         clearInterval(timer);
         close();
-        if (!r) return resolve(null);
-        resolve({ id: r.id, dur: r.dur, text: (finalText + interim).trim() });
+        const text = (finalText + interim).trim();
+        // 原生环境无音频文件，仅以识别文字作为有效内容
+        if (!r || (!r.id && !text)) return resolve(null);
+        resolve({ id: r.id, dur: r.dur, text });
       };
 
       const dlg = ui.sheet({
@@ -160,8 +171,8 @@
         if (state === 'idle') start();
         else if (state === 'rec') finish(dlg.close);
       };
-      // 自动开始
-      setTimeout(start, 220);
+      // 自动开始：原生环境需用户手势触发权限弹窗，故不自动开始；浏览器保留自动开始
+      if (!media.speech.native) setTimeout(start, 220);
     });
   }
 
