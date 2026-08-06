@@ -153,8 +153,33 @@
     });
   }
 
+  function isNative() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  }
+
   /** 打开相机/相册，返回媒体 id 数组 */
-  function pickPhotos(useCamera) {
+  async function pickPhotos(useCamera) {
+    // 原生 APK 环境：用 @capacitor/camera 原生相机/相册，自带权限与相机调用，最可靠
+    if (isNative() && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera) {
+      try {
+        const photo = await window.Capacitor.Plugins.Camera.getPhoto({
+          quality: 80,
+          allowEditing: false,
+          resultType: 'DataUrl',
+          source: useCamera ? 'CAMERA' : 'PROMPT',
+          saveToGallery: false,
+        });
+        if (!photo || !photo.base64String) return [];
+        const blob = b64ToBlob(photo.base64String, 'image/jpeg');
+        const compressed = await compress(blob);
+        const id = await media.put(compressed, { kind: 'photo', name: 'camera.jpg' });
+        return [id];
+      } catch (e) {
+        // 用户取消选择或权限被拒：返回空，不抛错
+        return [];
+      }
+    }
+    // 浏览器 / 回退：网页 input 方案
     return new Promise((res) => {
       const inp = document.createElement('input');
       inp.type = 'file';
