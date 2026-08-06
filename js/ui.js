@@ -105,15 +105,23 @@
 
   function confirm(opt) {
     return new Promise((res) => {
+      // 关闭弹窗会触发 onClose，若先 close 再 res(true)，结果会被 onClose 的 res(false) 抢先固化。
+      // 这里用 settled 保证只结算一次，且必须在 close 之前先定结果。
+      let settled = false;
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        res(v);
+      };
       sheet({
         title: opt.title || '确认',
         center: true,
         body: `<div class="small muted" style="line-height:1.7;white-space:pre-line">${u.esc(opt.text || '')}</div>`,
         footer: [
-          { text: opt.cancelText || '取消', cls: 'ghost', onClick: (c) => (c(), res(false)) },
-          { text: opt.okText || '确定', cls: opt.danger ? 'danger' : 'primary', onClick: (c) => (c(), res(true)) },
+          { text: opt.cancelText || '取消', cls: 'ghost', onClick: (c) => (done(false), c()) },
+          { text: opt.okText || '确定', cls: opt.danger ? 'danger' : 'primary', onClick: (c) => (done(true), c()) },
         ],
-        onClose: () => res(false),
+        onClose: () => done(false),
       });
     });
   }
