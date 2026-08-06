@@ -19,7 +19,7 @@ jobs:
       - name: 配置 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - name: 安装依赖
         run: npm install
@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
 
       - name: 配置 Android SDK（云端已含，无需本机安装）
         uses: android-actions/setup-android@v3
