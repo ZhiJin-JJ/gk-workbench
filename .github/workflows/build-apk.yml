@@ -64,6 +64,7 @@ jobs:
 
       - name: 生成 Android 工程并同步
         run: |
+          npx cap init "公考工作台" com.gongkao.workbench --web-dir dist 2>/dev/null || true
           npx cap add android || true
           npx cap sync android
 
