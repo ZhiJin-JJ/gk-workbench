@@ -1,1 +1,1 @@
-{"appId": "com.gongkao.workbench", "appName": "公考工作台", "webDir": "dist", "server": {"androidScheme": "https"}, "android": {"allowMixedContent": true}, "plugins": {}}
+{"appId": "com.gongkao.workbench", "appName": "公考工作台", "webDir": "dist", "server": {"androidScheme": "https"}, "android": {"allowMixedContent": true, "permissions": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS", "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_EXTERNAL_STORAGE"]}, "plugins": {}}
