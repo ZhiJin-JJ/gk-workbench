@@ -164,7 +164,10 @@
         close();
         const text = (finalText + interim).trim();
         // 原生环境无音频文件，仅以识别文字作为有效内容
-        if (!r || (!r.id && !text)) return resolve(null);
+        if (!r || (!r.id && !text)) {
+          ui.toast('本次未识别到文字（设备可能不支持语音识别）');
+          return resolve(null);
+        }
         resolve({ id: r.id, dur: r.dur, text });
       };
 

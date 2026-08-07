@@ -348,6 +348,7 @@
       _timer: 0,
       _handle: null,
       _errHandle: null,
+      _timeout: null,
       _text: '',
       get seconds() {
         return this._t0 ? (Date.now() - this._t0) / 1000 : 0;
@@ -382,9 +383,17 @@
           api.levels.shift();
           if (api.onTick) api.onTick(api.seconds, api.levels);
         }, 200);
+        // 静默失败检测：开始 4 秒仍无任何识别结果 → 判定本机不支持语音识别（如缺谷歌服务）
+        this._timeout = setTimeout(() => {
+          if (!this._text) {
+            if (api.onError) api.onError('本机未返回识别结果（通常因缺少语音识别服务）');
+            try { P.stop().catch(() => {}); } catch (e) {}
+          }
+        }, 4000);
       },
       stop() {
         clearInterval(this._timer);
+        if (this._timeout) { clearTimeout(this._timeout); this._timeout = null; }
         return new Promise((res) => {
           const done = () => {
             if (this._handle) { try { this._handle.remove(); } catch (e) {} this._handle = null; }
@@ -396,6 +405,7 @@
       },
       cancel() {
         clearInterval(this._timer);
+        if (this._timeout) { clearTimeout(this._timeout); this._timeout = null; }
         try {
           P.stop().catch(() => {});
           if (this._handle) { this._handle.remove().catch(() => {}); this._handle = null; }
