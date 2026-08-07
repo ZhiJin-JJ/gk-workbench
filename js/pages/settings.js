@@ -378,12 +378,34 @@
       const canvas = root.querySelector('#qr-canvas');
       const urlEl = root.querySelector('#qr-url');
       if (!canvas || !window.QRCode) return;
-      let url = location.origin;
-      try {
-        const r = await fetch('./api/lan');
-        const d = await r.json();
-        if (d && d.lan && d.lan.indexOf('127.0.0.1') === -1) url = d.lan;
-      } catch {}
+      const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+      const publicUrl = ((window.APP_CONFIG && window.APP_CONFIG.publicUrl) || '').trim();
+
+      let url = '';
+      if (native) {
+        // APK 是离线安装包，没有本地服务器，只能用已配置的公网地址
+        url = publicUrl;
+      } else {
+        url = location.origin;
+        try {
+          const r = await fetch('./api/lan');
+          const d = await r.json();
+          if (d && d.lan && d.lan.indexOf('127.0.0.1') === -1) url = d.lan;
+        } catch {}
+        // 有公网地址时优先用它（跨网络也能扫），否则用局域网地址（需同 WiFi）
+        if (publicUrl) url = publicUrl;
+      }
+
+      if (!url) {
+        // 离线 APK 且未配置地址：不生成无效二维码，给出说明
+        canvas.remove();
+        urlEl.innerHTML =
+          '本应用为离线安装包，没有可分享的网络地址。<br>如需在手机浏览器打开，请先部署网页版，并在 <b>js/config.js</b> 的 <code>publicUrl</code> 填写其地址。';
+        const copyBtn0 = root.querySelector('[data-copyurl]');
+        if (copyBtn0) copyBtn0.remove();
+        return;
+      }
+
       urlEl.textContent = url;
       const copyBtn = root.querySelector('[data-copyurl]');
       if (copyBtn) copyBtn.onclick = async () => {
