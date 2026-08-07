@@ -21,6 +21,7 @@ const FILES = [
   'js/store.js',
   'js/sync.js',
   'js/media.js',
+  'js/asr.js',
   'js/ui.js',
   'js/charts.js',
   'js/widgets.js',

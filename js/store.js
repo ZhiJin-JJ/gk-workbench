@@ -48,7 +48,7 @@
     mistakes: [], // {id,date,moduleId,title,answer,knowledge,text,photos:[],audios:[],mastered,createdAt}
     checkins: [], // {date,hours,note,createdAt}
     papers: [], // {id,name,type,date,score,full,minutes,sections:[],mistakeNote,forgotten,createdAt}
-    settings: { autoCheckin: true, lastBackup: '' },
+    settings: { autoCheckin: true, lastBackup: '', asrEngine: 'whisper' },
   };
 
   let state = load();

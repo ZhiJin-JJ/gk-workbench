@@ -233,6 +233,14 @@
           <span class="tt"><span class="a">刷题自动计入打卡时长</span><span class="b">记录刷题时默认勾选「计入当日学习时长」</span></span>
           <input type="checkbox" data-auto ${s.settings.autoCheckin ? 'checked' : ''} style="width:20px;height:20px;accent-color:#E0658F">
         </label>
+        <div class="list-item" style="cursor:default">
+          <span class="ic" style="background:linear-gradient(135deg,#8E7FE0,#6A4EC1)">${ui.icon('mic', 17)}</span>
+          <span class="tt"><span class="a">语音转文字引擎</span><span class="b">本地离线（推荐，无需联网）／ 浏览器原生（仅 Chrome 等）</span></span>
+          <select data-asr class="input" style="width:auto;max-width:130px;padding:6px 8px">
+            <option value="whisper" ${s.settings.asrEngine !== 'browser' ? 'selected' : ''}>本地离线</option>
+            <option value="browser" ${s.settings.asrEngine === 'browser' ? 'selected' : ''}>浏览器原生</option>
+          </select>
+        </div>
         <div class="list-item" data-clear style="cursor:pointer">
           <span class="ic" style="background:linear-gradient(135deg,#F09A9A,#E06B6B)">${ui.icon('trash', 17)}</span>
           <span class="tt"><span class="a" style="color:#D65A5A">清空全部数据</span><span class="b">删除所有记录与媒体，操作不可恢复</span></span>
@@ -245,7 +253,7 @@
         <div class="small muted" style="line-height:1.9">
           · 数据全部保存在手机本地浏览器中，不联网、不上传；建议每周做一次完整备份。<br>
           · 录音与拍照需在 <b>HTTPS</b> 或 <b>localhost</b> 环境下授权使用。<br>
-          · 语音转文字使用系统语音识别（Chrome / 安卓浏览器支持较好），识别结果可直接填入知识点。<br>
+          · 语音转文字使用本地离线 Whisper 模型（无需联网识别，结果直接填入知识点）；首次使用会下载约数十 MB 模型，请保持网络畅通。<br>
           · 添加到手机主屏后，可像 App 一样全屏使用。
         </div>
       </div>
@@ -262,6 +270,15 @@
       store.save();
       ui.toast('已更新');
     };
+    const asrSel = root.querySelector('[data-asr]');
+    if (asrSel) {
+      asrSel.onchange = (e) => {
+        s.settings.asrEngine = e.target.value;
+        store.save();
+        if (App.asr) App.asr.engine = e.target.value;
+        ui.toast('已切换为：' + (e.target.value === 'browser' ? '浏览器原生' : '本地离线 Whisper'));
+      };
+    }
     root.querySelector('[data-clear]').onclick = async () => {
       if (
         await ui.confirm({
