@@ -60,6 +60,58 @@
       urlCache[id] = url;
       return url;
     },
+    async play(id, handlers) {
+      handlers = handlers || {};
+      const rec = await media.get(id);
+      if (!rec) return null;
+      // 原生 APK：录音为 AMR/3GPP，WebView 的 HTML5 <audio> 解不了，必须用原生 Media 播放器
+      const nativePath = rec.uri || (rec.meta && rec.meta.src);
+      if (isNative() && nativePath && window.Media) {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          try { handlers.onEnd && handlers.onEnd(); } catch (e) {}
+        };
+        const m = new window.Media(
+          nativePath,
+          () => finish(), // 自然播放结束
+          (e) => { try { handlers.onError && handlers.onError(e); } catch (err) {} },
+          (st, val) => {
+            // status=1 时 val 为播放状态，4=MEDIA_STOPPED；部分版本直接传状态值
+            if ((st === 1 && val === 4) || st === 4 || val === 4) finish();
+          }
+        );
+        try {
+          m.play();
+        } catch (e) {
+          try { handlers.onError && handlers.onError(e); } catch (err) {}
+          return null;
+        }
+        return {
+          get playing() { return !done; },
+          stop() { try { m.stop(); m.release(); } catch (e) {} finish(); },
+          pause() { try { m.pause(); } catch (e) {} },
+        };
+      }
+      // 浏览器 / 网页录音：HTML5 Audio
+      const url = await media.url(id);
+      if (!url) return null;
+      const audio = new Audio(url);
+      audio.onended = () => { try { handlers.onEnd && handlers.onEnd(); } catch (e) {} };
+      audio.onerror = () => { try { handlers.onError && handlers.onError(new Error('play')); } catch (e) {} };
+      try {
+        await audio.play();
+      } catch (e) {
+        try { handlers.onError && handlers.onError(e); } catch (err) {}
+        return null;
+      }
+      return {
+        get playing() { return !audio.paused; },
+        stop() { try { audio.pause(); audio.currentTime = 0; } catch (e) {} },
+        pause() { try { audio.pause(); } catch (e) {} },
+      };
+    },
     async del(id) {
       if (urlCache[id]) {
         URL.revokeObjectURL(urlCache[id]);
@@ -357,7 +409,8 @@
         return this._t0 ? (Date.now() - this._t0) / 1000 : 0;
       },
       async start() {
-        const dir = cf.cacheDirectory || cf.dataDirectory || '';
+        // 用持久化的 dataDirectory 存放录音，避免 cache 被系统清理后丢失
+        const dir = cf.dataDirectory || cf.cacheDirectory || '';
         if (!dir) throw new Error('无法获取录音存储目录');
         const fileName = 'rec_' + u.uid() + '.m4a';
         const path = dir + fileName;
@@ -388,34 +441,13 @@
           try {
             this._media.stopRecord();
           } catch (e) {}
-          const readBlob = () =>
-            new Promise((r2, rej2) => {
-              const resolve = window.resolveLocalFileSystemURL || (window.cordova && window.cordova.file && window.cordova.file.resolveLocalFileSystemURL);
-              if (!resolve) return rej2(new Error('无文件读取能力'));
-              resolve(
-                path,
-                (entry) => entry.file((file) => r2(file), (err) => rej2(err)),
-                (err) => rej2(err)
-              );
-            });
-          readBlob()
-            .then(async (file) => {
-              let id = null;
-              try {
-                id = await media.put(file, { kind: 'audio', dur, src: path });
-              } catch (e) {}
-              try { this._media.release(); } catch (e) {}
-              if (!id) {
-                // 读取成功但写入失败：以 uri 兜底存储（播放时直接返回 uri）
-                id = await media.put(null, { kind: 'audio', dur, uri: path }).catch(() => null);
-              }
-              res({ id, dur, size: file && file.size ? file.size : 0 });
-            })
-            .catch((e) => {
-              if (api.onError) api.onError('读取录音失败：' + (e && (e.message || e) || e));
-              try { this._media.release(); } catch (e2) {}
-              res({ id: null, dur, size: 0 });
-            });
+          try { this._media.release(); } catch (e) {}
+          // 仅保存文件路径（uri）：录音是 AMR/3GPP，WebView 的 HTML5 <audio> 解不了，
+          // 播放时必须用原生 Media 播放器（见 media.play）。不读 blob，避免格式/解码问题。
+          media
+            .put(null, { kind: 'audio', dur, uri: path, src: path })
+            .then((id) => res({ id, dur, size: 0 }))
+            .catch((e) => res({ id: null, dur, size: 0 }));
         });
       },
       cancel() {

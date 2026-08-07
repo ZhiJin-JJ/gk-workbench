@@ -26,26 +26,37 @@
     </div>`);
 
     const bar = row.querySelector('.voice-bar');
-    let audio = null;
+    let player = null;
+    const stopUi = () => {
+      bar.classList.remove('playing');
+      const p = bar.querySelector('.vb-play');
+      if (p) p.innerHTML = ui.icon('play', 18);
+    };
     if (bar) {
       bar.onclick = async () => {
-        if (audio && !audio.paused) {
-          audio.pause();
-          audio.currentTime = 0;
-          bar.classList.remove('playing');
-          bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
+        if (player) {
+          player.stop();
+          player = null;
+          stopUi();
           return;
         }
-        const url = await media.url(a.id);
-        if (!url) return ui.toast('语音文件已丢失');
-        audio = new Audio(url);
-        audio.play().catch(() => ui.toast('播放失败'));
-        bar.classList.add('playing');
         bar.querySelector('.vb-play').innerHTML = ui.icon('pause', 18);
-        audio.onended = () => {
-          bar.classList.remove('playing');
-          bar.querySelector('.vb-play').innerHTML = ui.icon('play', 18);
-        };
+        bar.classList.add('playing');
+        player = await media.play(a.id, {
+          onEnd: () => {
+            player = null;
+            stopUi();
+          },
+          onError: () => {
+            player = null;
+            stopUi();
+            ui.toast('播放失败');
+          },
+        });
+        if (!player) {
+          stopUi();
+          ui.toast('语音文件已丢失');
+        }
       };
     }
     const tBtn = row.querySelector('[data-t]');
