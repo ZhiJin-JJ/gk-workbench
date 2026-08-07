@@ -11,6 +11,7 @@ const dist = path.join(root, 'dist');
 const FILES = [
   'index.html',
   'js/config.js',
+  '.nojekyll',
   'favicon.svg',
   'manifest.webmanifest',
   'sw.js',

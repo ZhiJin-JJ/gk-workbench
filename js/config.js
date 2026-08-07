@@ -6,5 +6,5 @@
  * 例（自建服务器）：   https://你的域名/
  */
 window.APP_CONFIG = window.APP_CONFIG || {
-  publicUrl: '',
+  publicUrl: 'https://zhijin-jj.github.io/gk-workbench/',
 };
