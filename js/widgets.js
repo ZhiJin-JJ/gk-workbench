@@ -70,8 +70,8 @@
         <div class="rec-mic" data-mic>${ui.icon('mic', 38)}</div>
         <div class="rec-time" data-time>00:00</div>
         <div class="rec-live" data-live>${barsHtml}</div>
-        <div class="small muted" data-hint>点击话筒开始录音，边说边自动转文字</div>
-        <div class="rec-asr" data-asr><span class="im">语音转文字结果将显示在这里…</span></div>
+        <div class="small muted" data-hint>点击话筒开始录音，结束后自动保存语音条</div>
+        <div class="rec-asr" data-asr><span class="im">${media.speech.supported ? '语音转文字结果将显示在这里…' : 'APK 内仅保存语音条；自动转文字请用手机浏览器打开本页'}</span></div>
       </div>`);
 
       let rec = null,
@@ -100,19 +100,14 @@
             timeEl.textContent = u.clock(sec);
             liveBars.forEach((b, i) => (b.style.height = (levels[levels.length - liveBars.length + i] || 5) + 'px'));
           };
-          // 原生环境：语音识别由 createRecorder 内部处理（rec.onResult），避免麦克风被录音与识别同时占用
+          // 原生环境：录音由 createRecorder 内部的原生录音器处理（仅录音，不转文字）
           if (media.speech.native && !forceWeb) {
-            rec.onResult = (f, i) => {
-              finalText = f;
-              interim = i;
-              paint();
-            };
-            rec.onError = (msg) => ui.toast('语音识别：' + msg);
+            rec.onError = (msg) => ui.toast('录音：' + msg);
           }
           await rec.start();
           state = 'rec';
           micEl.classList.add('on');
-          hintEl.textContent = media.speech.native && !forceWeb ? '正在聆听…再次点击话筒结束（边说边出字）' : '正在录音…再次点击话筒结束';
+          hintEl.textContent = media.speech.native && !forceWeb ? '正在录音…再次点击话筒结束（APK 内不自动转文字）' : '正在录音…再次点击话筒结束';
           // 浏览器环境：用 webkitSpeechRecognition 边录边识别
           if (!media.speech.native && media.speech.supported) {
             sr = media.speech.create((f, i) => {
@@ -125,27 +120,7 @@
             } catch (e) {}
           }
         } catch (e) {
-          // 原生语音识别失败（设备缺识别服务 / 无网络 / 权限被拒）：降级为仅录音保存语音条
-          if (media.speech.native && !forceWeb) {
-            ui.toast('语音识别不可用，已切换为仅录音模式');
-            forceWeb = true;
-            try {
-              rec = media.createRecorder(true);
-              rec.onTick = (sec, levels) => {
-                timeEl.textContent = u.clock(sec);
-                liveBars.forEach((b, i) => (b.style.height = (levels[levels.length - liveBars.length + i] || 5) + 'px'));
-              };
-              await rec.start();
-              state = 'rec';
-              micEl.classList.add('on');
-              hintEl.textContent = '正在录音…（当前设备不支持自动转文字）';
-              return;
-            } catch (e2) {
-              ui.toast('无法访问麦克风：' + (e2.message || e2.name));
-              return;
-            }
-          }
-          ui.toast('无法访问麦克风：' + (e.message || e.name));
+          ui.toast('无法开始录音：' + (e.message || e.name));
         }
       };
 
@@ -163,9 +138,9 @@
         clearInterval(timer);
         close();
         const text = (finalText + interim).trim();
-        // 原生环境无音频文件，仅以识别文字作为有效内容
+        // 原生平环境：语音条必有音频 id；浏览器：有音频或文字皆可
         if (!r || (!r.id && !text)) {
-          ui.toast('本次未识别到文字（设备可能不支持语音识别）');
+          ui.toast(media.speech.native ? '录音未生成，请重试' : '本次未识别到文字');
           return resolve(null);
         }
         resolve({ id: r.id, dur: r.dur, text });

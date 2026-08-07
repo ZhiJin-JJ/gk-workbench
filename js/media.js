@@ -33,7 +33,7 @@
       const id = u.uid();
       const st = await tx('readwrite');
       await new Promise((res, rej) => {
-        const r = st.put({ id, blob, type: blob.type, meta: meta || {}, createdAt: Date.now() });
+        const r = st.put({ id, blob: blob || null, type: (blob && blob.type) || '', meta: meta || {}, createdAt: Date.now() });
         r.onsuccess = res;
         r.onerror = () => rej(r.error);
       });
@@ -51,6 +51,11 @@
       if (urlCache[id]) return urlCache[id];
       const rec = await media.get(id);
       if (!rec) return '';
+      // 原生录音器可能直接存文件 uri（无 blob），优先用 uri 播放
+      if (rec.uri) {
+        urlCache[id] = rec.uri;
+        return rec.uri;
+      }
       const url = URL.createObjectURL(rec.blob);
       urlCache[id] = url;
       return url;
@@ -212,13 +217,12 @@
   /* ---------------- 语音识别 ---------------- */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const speech = {
-    // 原生环境用 @capacitor-community/speech-recognition 插件（识别逻辑由 createRecorder 内部的 nativeAsrRecorder 接管）
-    native: isNative() && !!(window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition),
-    supported: isNative()
-      ? !!(window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition)
-      : !!SR,
+    // 是否为原生 APK 环境（用原生录音器录音；转文字交给手机浏览器版，故原生不做 ASR）
+    native: isNative(),
+    // 本环境能否直接语音转文字：原生 APK 内不转（浏览器版转），故原生=false；浏览器看 SR 是否支持
+    supported: isNative() ? false : !!SR,
     create(onResult, onEnd) {
-      if (isNative()) return null; // 原生识别由 createRecorder 内部处理，不重复创建
+      if (isNative()) return null; // 原生 APK 不在此处做 ASR（转文字用浏览器版）
       if (!SR) return null;
       const r = new SR();
       r.lang = 'zh-CN';
@@ -244,8 +248,9 @@
 
   /* ---------------- 录音器 ---------------- */
   function createRecorder(forceWeb) {
-    if (!forceWeb && isNative() && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
-      return nativeAsrRecorder();
+    // 原生 APK 环境用 Cordova 录音插件录制真实音频文件并保存语音条（不做 ASR，转文字交给浏览器版）
+    if (!forceWeb && isNative() && window.Media) {
+      return nativeAudioRecorder();
     }
     let mr = null,
       stream = null,
@@ -336,46 +341,36 @@
     return api;
   }
 
-  /* ---------------- 原生语音识别录音器（安卓麦克风独占，仅识别、不另录音频） ---------------- */
-  function nativeAsrRecorder() {
-    const P = window.Capacitor.Plugins.SpeechRecognition;
+  /* ---------------- 原生音频录音器（安卓用 Cordova Media 插件录制真实音频文件，保存语音条） ---------------- */
+  function nativeAudioRecorder() {
+    const M = window.Media;
+    const cf = (window.cordova && window.cordova.file) || {};
     const api = {
       levels: new Array(28).fill(6),
       onTick: null, // (seconds, levels)
-      onResult: null, // (finalText, interim)
       onError: null, // (message)
       _t0: 0,
       _timer: 0,
-      _handle: null,
-      _errHandle: null,
-      _timeout: null,
-      _text: '',
+      _media: null,
+      _path: '',
       get seconds() {
         return this._t0 ? (Date.now() - this._t0) / 1000 : 0;
       },
       async start() {
-        const a = await P.available().catch(() => null);
-        const ok = a && (a.available === true || a === true);
-        if (!ok) throw new Error('设备不支持语音识别（缺少语音识别服务）');
-        await P.requestPermissions().catch(() => {});
-        this._handle = await P.addListener('partialResults', (d) => {
-          const m = (d && (d.matches || d.value || d.transcript)) || [];
-          const arr = Array.isArray(m) ? m : m ? [m] : [];
-          if (!arr.length) return;
-          this._text = arr[0];
-          if (api.onResult) api.onResult(this._text, '');
-          const lv = 10 + Math.round(Math.random() * 16);
-          api.levels.push(lv);
-          api.levels.shift();
-          if (api.onTick) api.onTick(api.seconds, api.levels);
-        });
-        // 部分设备识别失败/无网络会触发 error 事件
-        try {
-          this._errHandle = await P.addListener('error', (e) => {
-            if (api.onError) api.onError((e && (e.message || JSON.stringify(e))) || '语音识别出错');
-          });
-        } catch (err) {}
-        await P.start({ language: 'zh-CN', partialResults: true, popup: false, maxResults: 1 });
+        const dir = cf.cacheDirectory || cf.dataDirectory || '';
+        if (!dir) throw new Error('无法获取录音存储目录');
+        const fileName = 'rec_' + u.uid() + '.m4a';
+        const path = dir + fileName;
+        this._path = path;
+        this._media = new M(
+          path,
+          () => {},
+          (e) => {
+            if (api.onError) api.onError('录音出错：' + (e && (e.message || JSON.stringify(e)) || 'unknown'));
+          },
+          () => {}
+        );
+        this._media.startRecord();
         this._t0 = Date.now();
         this._timer = setInterval(() => {
           const lv = 8 + Math.round(Math.random() * 14);
@@ -383,38 +378,58 @@
           api.levels.shift();
           if (api.onTick) api.onTick(api.seconds, api.levels);
         }, 200);
-        // 静默失败检测：开始 4 秒仍无任何识别结果 → 判定本机不支持语音识别（如缺谷歌服务）
-        this._timeout = setTimeout(() => {
-          if (!this._text) {
-            if (api.onError) api.onError('本机未返回识别结果（通常因缺少语音识别服务）');
-            try { P.stop().catch(() => {}); } catch (e) {}
-          }
-        }, 4000);
       },
       stop() {
         clearInterval(this._timer);
-        if (this._timeout) { clearTimeout(this._timeout); this._timeout = null; }
         return new Promise((res) => {
-          const done = () => {
-            if (this._handle) { try { this._handle.remove(); } catch (e) {} this._handle = null; }
-            if (this._errHandle) { try { this._errHandle.remove(); } catch (e) {} this._errHandle = null; }
-            res({ id: null, dur: api.seconds, size: 0, text: this._text });
-          };
-          P.stop().catch(() => {}).finally(done);
+          if (!this._media) return res({ id: null, dur: api.seconds, size: 0 });
+          const path = this._path;
+          const dur = api.seconds;
+          try {
+            this._media.stopRecord();
+          } catch (e) {}
+          const readBlob = () =>
+            new Promise((r2, rej2) => {
+              const resolve = window.resolveLocalFileSystemURL || (window.cordova && window.cordova.file && window.cordova.file.resolveLocalFileSystemURL);
+              if (!resolve) return rej2(new Error('无文件读取能力'));
+              resolve(
+                path,
+                (entry) => entry.file((file) => r2(file), (err) => rej2(err)),
+                (err) => rej2(err)
+              );
+            });
+          readBlob()
+            .then(async (file) => {
+              let id = null;
+              try {
+                id = await media.put(file, { kind: 'audio', dur, src: path });
+              } catch (e) {}
+              try { this._media.release(); } catch (e) {}
+              if (!id) {
+                // 读取成功但写入失败：以 uri 兜底存储（播放时直接返回 uri）
+                id = await media.put(null, { kind: 'audio', dur, uri: path }).catch(() => null);
+              }
+              res({ id, dur, size: file && file.size ? file.size : 0 });
+            })
+            .catch((e) => {
+              if (api.onError) api.onError('读取录音失败：' + (e && (e.message || e) || e));
+              try { this._media.release(); } catch (e2) {}
+              res({ id: null, dur, size: 0 });
+            });
         });
       },
       cancel() {
         clearInterval(this._timer);
-        if (this._timeout) { clearTimeout(this._timeout); this._timeout = null; }
         try {
-          P.stop().catch(() => {});
-          if (this._handle) { this._handle.remove().catch(() => {}); this._handle = null; }
-          if (this._errHandle) { this._errHandle.remove().catch(() => {}); this._errHandle = null; }
+          if (this._media) {
+            this._media.stopRecord();
+            this._media.release();
+          }
         } catch (e) {}
       },
     };
     return api;
   }
 
-  App.media = Object.assign(media, { pickPhotos, compress, speech, createRecorder, blobToB64, b64ToBlob, recordSupported: isNative() ? true : !!(navigator.mediaDevices && window.MediaRecorder) });
+  App.media = Object.assign(media, { pickPhotos, compress, speech, createRecorder, blobToB64, b64ToBlob, recordSupported: isNative() ? !!window.Media : !!(navigator.mediaDevices && window.MediaRecorder) });
 })();
