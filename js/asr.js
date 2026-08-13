@@ -11,7 +11,7 @@
   // 同源模型路径（GitHub Pages 直接提供，无需外部下载）
   const LOCAL_PATH = '/models/' + MODEL.replace(/^.*\//, '');
 
-  // transformers.js ESM CDN（多源回退）
+  // transformers.js ESM CDN（多源回退）— 仅加载推理库本身
   const CDNS = [
     'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.2',
     'https://esm.sh/@huggingface/transformers@3.5.2',
@@ -34,12 +34,16 @@
   }
 
   /**
-   * 检测同源模型是否可用（GitHub Pages 已部署）
+   * 检测同源模型是否可用（GitHub Pages 已部署 config.json）
    */
   async function probeLocal() {
     try {
       const r = await fetch(LOCAL_PATH + '/config.json', { method: 'HEAD' });
-      return r.ok;
+      if (!r.ok) return false;
+      // 二次验证：确保不是 HTML 页面（GitHub Pages 404 会返回自定义 HTML）
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('text/html')) return false;
+      return true;
     } catch (e) {
       return false;
     }
@@ -50,36 +54,38 @@
     pipeP = (async () => {
       const T = await loadTF();
       const { pipeline, env } = T;
-      env.allowRemoteModels = true;
 
-      // 策略：优先从 GitHub Pages 同源加载（已打包在仓库中），失败再尝试远程镜像
+      // ★ 关键：禁止远程下载，强制纯本地加载
+      env.allowRemoteModels = false;
+
+      // 必须检测到同源模型才继续（否则直接报错，不尝试远程）
       const hasLocal = await probeLocal();
-      let modelId = MODEL;
-      if (hasLocal) {
-        // 同源可用：用绝对路径让 transformers.js 从本地加载
-        modelId = location.origin + LOCAL_PATH;
-        console.log('[ASR] 使用同源模型:', modelId);
-      } else {
-        console.log('[ASR] 同源模型不可用，将尝试远程下载');
+      if (!hasLocal) {
+        throw new Error(
+          '本地模型文件未找到（/models/whisper-tiny/）。' +
+          '可能原因：\n' +
+          '1. GitHub Pages 尚未完成部署（刚推送后需等待 1-2 分钟）\n' +
+          '2. 未开启 GitHub Pages 或未选择 GitHub Actions 部署\n' +
+          '请稍后刷新页面重试。'
+        );
       }
 
-      try {
-        const transcriber = await pipeline(
-          'automatic-speech-recognition',
-          modelId,
-          {
-            device: 'wasm',
-            dtype: 'q8',
-            progress_callback: (p) => {
-              onProgress && onProgress(p);
-            },
-          }
-        );
-        return transcriber;
-      } catch (e) {
-        pipeP = null;
-        throw e;
-      }
+      // 用绝对路径让 transformers.js 从同源加载全部文件
+      const modelId = location.origin + LOCAL_PATH;
+      console.log('[ASR] 使用同源模型（纯本地模式）:', modelId);
+
+      const transcriber = await pipeline(
+        'automatic-speech-recognition',
+        modelId,
+        {
+          device: 'wasm',
+          dtype: 'q8',
+          progress_callback: (p) => {
+            onProgress && onProgress(p);
+          },
+        }
+      );
+      return transcriber;
     })();
     try {
       return await pipeP;
@@ -88,9 +94,9 @@
       throw new Error(
         '语音转文字引擎加载失败。\n' +
         '原因：' +
-        (e.message ? e.message.slice(0, 200) : e) +
+        (e.message ? e.message.slice(0, 300) : e) +
         '\n\n建议：\n' +
-        '1. 刷新页面重试\n' +
+        '1. 刷新页面重试（确认 Pages 已完成部署）\n' +
         '2. 或切换到「浏览器原生」引擎（设置页 → 语音转文字引擎）'
       );
     }
