@@ -36,13 +36,32 @@ const FILES = [
   'js/pages/settings.js',
 ];
 
-function copy(rel) {
+// 需要递归复制的目录（模型文件等）
+const DIRS = ['models'];
+
+function copyFile(rel) {
   const src = path.join(root, rel);
   const dst = path.join(dist, rel);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.copyFileSync(src, dst);
 }
 
+function copyDir(rel) {
+  const src = path.join(root, rel);
+  const dst = path.join(dist, rel);
+  if (!fs.existsSync(src)) return;
+  function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      const out = path.join(dst, path.relative(src, full));
+      if (e.isDirectory()) { fs.mkdirSync(out, { recursive: true }); walk(full); }
+      else { fs.mkdirSync(path.dirname(out), { recursive: true }); fs.copyFileSync(full, out); }
+    }
+  }
+  walk(src);
+}
+
 fs.rmSync(dist, { recursive: true, force: true });
-FILES.forEach(copy);
-console.log(`✓ 已构建 ${FILES.length} 个文件到 dist/`);
+FILES.forEach(copyFile);
+DIRS.forEach(copyDir);
+console.log(`✓ 已构建到 dist/（${FILES.length} 文件 + ${DIRS.join(',')} 目录）`);

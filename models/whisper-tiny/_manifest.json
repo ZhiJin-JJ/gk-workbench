@@ -1,0 +1,17 @@
+{
+  "model": "Xenova/whisper-tiny",
+  "source": "https://hf-mirror.com/Xenova/whisper-tiny/resolve/main",
+  "downloadedAt": "2026-08-13T00:52:25.481Z",
+  "files": [
+    "config.json",
+    "generation_config.json",
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+    "added_tokens.json",
+    "onnx/encoder_model_quantized.onnx",
+    "onnx/decoder_model_merged_quantized.onnx"
+  ]
+}
