@@ -36,8 +36,8 @@ const FILES = [
   'js/pages/settings.js',
 ];
 
-// 需要递归复制的目录（模型文件等）
-const DIRS = ['models'];
+// 需要递归复制的目录
+const DIRS = [];
 
 function copyFile(rel) {
   const src = path.join(root, rel);

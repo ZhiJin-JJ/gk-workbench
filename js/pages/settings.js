@@ -235,11 +235,7 @@
         </label>
         <div class="list-item" style="cursor:default">
           <span class="ic" style="background:linear-gradient(135deg,#8E7FE0,#6A4EC1)">${ui.icon('mic', 17)}</span>
-          <span class="tt"><span class="a">语音转文字引擎</span><span class="b">本地离线（推荐，无需联网）／ 浏览器原生（仅 Chrome 等）</span></span>
-          <select data-asr class="input" style="width:auto;max-width:130px;padding:6px 8px">
-            <option value="whisper" ${s.settings.asrEngine !== 'browser' ? 'selected' : ''}>本地离线</option>
-            <option value="browser" ${s.settings.asrEngine === 'browser' ? 'selected' : ''}>浏览器原生</option>
-          </select>
+          <span class="tt"><span class="a">语音转文字</span><span class="b">${typeof (window.SpeechRecognition || window.webkitSpeechRecognition) !== 'undefined' ? '当前浏览器支持实时语音识别' : '当前浏览器不支持语音识别，仅保存语音条'}</span></span>
         </div>
         <div class="list-item" data-clear style="cursor:pointer">
           <span class="ic" style="background:linear-gradient(135deg,#F09A9A,#E06B6B)">${ui.icon('trash', 17)}</span>
@@ -270,15 +266,6 @@
       store.save();
       ui.toast('已更新');
     };
-    const asrSel = root.querySelector('[data-asr]');
-    if (asrSel) {
-      asrSel.onchange = (e) => {
-        s.settings.asrEngine = e.target.value;
-        store.save();
-        if (App.asr) App.asr.engine = e.target.value;
-        ui.toast('已切换为：' + (e.target.value === 'browser' ? '浏览器原生' : '本地离线 Whisper'));
-      };
-    }
     root.querySelector('[data-clear]').onclick = async () => {
       if (
         await ui.confirm({

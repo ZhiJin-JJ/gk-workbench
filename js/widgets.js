@@ -77,9 +77,8 @@
         return resolve(null);
       }
       const isNative = media.speech.native;
-      const asrEngine = ((store.state.settings && store.state.settings.asrEngine) || 'whisper');
-      const useBrowserSR = asrEngine === 'browser' && !isNative && !!SR;
-      const useWhisper = asrEngine === 'whisper';
+      const hasNativeSR = typeof (window.SpeechRecognition || window.webkitSpeechRecognition) !== 'undefined';
+      const useBrowserSR = !isNative && hasNativeSR;
       const barsHtml = new Array(28).fill('<i></i>').join('');
       const body = u.el(`<div class="rec-wrap">
         <div class="rec-mic" data-mic>${ui.icon('mic', 38)}</div>
@@ -90,14 +89,14 @@
             ? '点击话筒录音（APK 内不自动转文字，转文字请用手机浏览器打开本页）'
             : useBrowserSR
             ? '点击话筒开始录音，边说边识别'
-            : '点击话筒开始录音，结束后自动转成文字'
+            : '点击话筒开始录音（当前浏览器不支持语音转文字）'
         }</div>
         <div class="rec-asr" data-asr><span class="im">${
           isNative
             ? 'APK 内仅保存语音条；自动转文字请用手机浏览器打开本页'
-            : useWhisper
-            ? '录音结束后将自动转成文字…'
-            : '语音转文字结果将显示在这里…'
+            : useBrowserSR
+            ? '语音转文字结果将显示在这里…'
+            : '当前浏览器不支持语音转文字，仅保存语音条'
         }</span></div>
       </div>`);
 
@@ -164,29 +163,8 @@
         const r = await rec.stop();
         clearInterval(timer);
         const text0 = (finalText + interim).trim();
-        // 本地 Whisper 转写：录音结束后对音频 blob 进行离线识别（不依赖任何网络识别服务）
-        if (useWhisper && !text0 && r && r.id && App.asr && !isNative) {
-          try {
-            const rec2 = await media.get(r.id);
-            if (rec2 && rec2.blob) {
-              hintEl.textContent = '正在转成文字…（首次需下载模型，约数十 MB）';
-              asrEl.innerHTML = '<span class="im">本地识别中，请稍候…</span>';
-              const t = await App.asr.transcribe(rec2.blob, {
-                onProgress: (p) => {
-                  if (p && p.status === 'progress' && p.total) {
-                    const pct = Math.max(0, Math.min(100, Math.round((p.loaded / p.total) * 100)));
-                    hintEl.textContent = '正在加载识别模型 ' + pct + '%…';
-                  }
-                },
-              });
-              finalText = t || '';
-              paint();
-            }
-          } catch (e) {
-            hintEl.textContent = '本地转写失败：' + (e.message || e);
-            ui.toast('语音转文字失败：' + (e.message || e));
-          }
-        }
+        // 浏览器原生语音识别：录音结束后若已有识别结果则直接使用
+        // （已在录音过程中通过 webkitSpeechRecognition 实时识别）
         close();
         const text = (finalText + interim).trim();
         // 原生平环境：语音条必有音频 id；浏览器：有音频或文字皆可
