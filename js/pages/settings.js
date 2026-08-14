@@ -235,7 +235,7 @@
         </label>
         <div class="list-item" style="cursor:default">
           <span class="ic" style="background:linear-gradient(135deg,#8E7FE0,#6A4EC1)">${ui.icon('mic', 17)}</span>
-          <span class="tt"><span class="a">语音转文字</span><span class="b">${typeof (window.SpeechRecognition || window.webkitSpeechRecognition) !== 'undefined' ? '当前浏览器支持实时语音识别' : '当前浏览器不支持语音识别，仅保存语音条'}</span></span>
+          <span class="tt"><span class="a">语音转文字</span><span class="b">本地离线 Whisper 识别（首次需下载模型约 60MB，之后走缓存）</span></span>
         </div>
         <div class="list-item" data-clear style="cursor:pointer">
           <span class="ic" style="background:linear-gradient(135deg,#F09A9A,#E06B6B)">${ui.icon('trash', 17)}</span>

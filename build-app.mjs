@@ -12,6 +12,7 @@ const FILES = [
   'index.html',
   'js/config.js',
   '.nojekyll',
+  '_headers',
   'favicon.svg',
   'manifest.webmanifest',
   'sw.js',
@@ -36,8 +37,8 @@ const FILES = [
   'js/pages/settings.js',
 ];
 
-// 需要递归复制的目录
-const DIRS = [];
+// 需要递归复制的目录（vendor 含 transformers.js + wasm；models 含离线模型权重）
+const DIRS = ['js/vendor', 'models'];
 
 function copyFile(rel) {
   const src = path.join(root, rel);
