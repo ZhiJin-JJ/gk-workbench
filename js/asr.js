@@ -26,6 +26,8 @@
     const { env } = tfModule;
     // ★ 完全离线：禁止一切远程下载
     env.allowRemoteModels = false;
+    // ★ 显式允许本地模型（3.x 要求必须显式开启）
+    env.allowLocalModels = true;
     // 强制单线程（GitHub Pages 默认无 COOP/COEP 跨源隔离头，多线程 wasm 不可用）
     env.backends.onnx.wasm.numThreads = 1;
     // 显式指定 wasm 同源目录
