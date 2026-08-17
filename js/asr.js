@@ -24,10 +24,11 @@
     // 从同源 vendor 目录加载 transformer.js（其 wasm 也来自同源，不触发任何 CDN 请求）
     tfModule = await import(/* @vite-ignore */ TF_URL);
     const { env } = tfModule;
-    // ★ 完全离线：禁止一切远程下载
-    env.allowRemoteModels = false;
-    // ★ 显式允许本地模型（3.x 要求必须显式开启）
-    env.allowLocalModels = true;
+    // 注意：不能设 allowRemoteModels=false！
+    // 对浏览器来说 github.io 的同源 URL 也是 "remote"（HTTP 协议），
+    // 设为 false 会拦截同源模型文件的加载。
+    // 真正的"离线"靠的是：wasmPaths 指向同源 + 模型路径显式指定同源 URL，
+    // 这样所有资源都从自己的服务器加载，不会请求 HuggingFace CDN。
     // 强制单线程（GitHub Pages 默认无 COOP/COEP 跨源隔离头，多线程 wasm 不可用）
     env.backends.onnx.wasm.numThreads = 1;
     // 显式指定 wasm 同源目录
