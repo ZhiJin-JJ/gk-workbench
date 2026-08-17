@@ -1,9 +1,10 @@
-/* ========== 语音转文字（完全离线 Whisper：库/wasm/模型全部同源打包，零外部请求） ========== */
+/* ========== 语音转文字（完全离线 Whisper：库/wasm/模型全部同源打包） ========== */
 (function () {
   const App = (window.App = window.App || {});
-  const u = App.u;
 
-  const MODEL = 'whisper-tiny';
+  // 模型 ID 必须包含完整命名空间：Xenova/whisper-tiny
+  // 对应目录结构：models/Xenova/whisper-tiny/{config.json, tokenizer.json, onnx/...}
+  const MODEL_ID = 'Xenova/whisper-tiny';
 
   // 基于当前页面 URL 计算资源绝对路径（兼容 GitHub Pages 子路径 /gk-workbench/ 与本地 /）
   function assetUrl(rel) {
@@ -12,34 +13,35 @@
     return location.origin + p + rel;
   }
 
-  const LOCAL_PATH = assetUrl('models/' + MODEL);
   const TF_URL = assetUrl('js/vendor/transformers.js');
-  const WASM_DIR = assetUrl('js/vendor/'); // 末尾带斜杠，供 onnxruntime 加载 wasm
+  const WASM_DIR = assetUrl('js/vendor/');
+  // localModelPath 是模型根目录，pipeline 会自动拼接 MODEL_ID 子路径
+  const MODEL_ROOT = assetUrl('models');
 
   let pipeP = null;
   let tfModule = null;
 
   async function loadTF() {
     if (tfModule) return tfModule;
-    // 从同源 vendor 目录加载 transformer.js（其 wasm 也来自同源，不触发任何 CDN 请求）
+    // 从同源 vendor 目录加载 transformers.js
     tfModule = await import(/* @vite-ignore */ TF_URL);
     const { env } = tfModule;
-    // 注意：不能设 allowRemoteModels=false！
-    // 对浏览器来说 github.io 的同源 URL 也是 "remote"（HTTP 协议），
-    // 设为 false 会拦截同源模型文件的加载。
-    // 真正的"离线"靠的是：wasmPaths 指向同源 + 模型路径显式指定同源 URL，
-    // 这样所有资源都从自己的服务器加载，不会请求 HuggingFace CDN。
-    // 强制单线程（GitHub Pages 默认无 COOP/COEP 跨源隔离头，多线程 wasm 不可用）
+
+    // ★ 完全离线配置 ★
+    env.allowRemoteModels = false;      // 禁止从 HuggingFace CDN 下载
+    env.localModelPath = MODEL_ROOT;    // 模型从此目录加载（同源）
+    // 单线程：GitHub Pages 无 COOP/COEP，SharedArrayBuffer 不可用
     env.backends.onnx.wasm.numThreads = 1;
-    // 显式指定 wasm 同源目录
+    // wasm 从同源 vendor 目录加载
     env.backends.onnx.wasm.wasmPaths = WASM_DIR;
+
     return tfModule;
   }
 
-  // 检测同源模型是否真正可用（排除 Pages 的 HTML 404 页面）
   async function probeLocal() {
     try {
-      const r = await fetch(LOCAL_PATH + '/config.json', { method: 'HEAD' });
+      const url = MODEL_ROOT + '/' + MODEL_ID + '/config.json';
+      const r = await fetch(url, { method: 'HEAD' });
       if (!r.ok) return false;
       const ct = r.headers.get('content-type') || '';
       if (ct.includes('text/html')) return false;
@@ -58,14 +60,15 @@
       const hasLocal = await probeLocal();
       if (!hasLocal) {
         throw new Error(
-          '本地模型文件未找到（models/whisper-tiny/）。\n' +
+          '本地模型文件未找到（models/Xenova/whisper-tiny/）。\n' +
           '可能原因：GitHub Pages 尚未完成部署，请刷新页面重试。'
         );
       }
 
+      // 使用标准模型 ID（含命名空间），localModelPath 会自动定位到同源目录
       const transcriber = await pipeline(
         'automatic-speech-recognition',
-        LOCAL_PATH,
+        MODEL_ID,
         {
           device: 'wasm',
           dtype: 'q8',
@@ -81,8 +84,8 @@
       throw new Error(
         '语音转文字引擎加载失败。\n' +
         '原因：' +
-        (e.message ? e.message.slice(0, 300) : e) +
-        '\n\n建议：刷新页面重试（首次需下载模型，约数十 MB）'
+        (e.message ? e.message.slice(0, 400) : e) +
+        '\n\n建议：刷新页面重试（首次需下载模型约 90MB，之后走缓存）'
       );
     }
   }
