@@ -3,7 +3,6 @@
   const App = (window.App = window.App || {});
 
   // 模型 ID 必须包含完整命名空间：Xenova/whisper-tiny
-  // 对应目录结构：models/Xenova/whisper-tiny/{config.json, tokenizer.json, onnx/...}
   const MODEL_ID = 'Xenova/whisper-tiny';
 
   // 基于当前页面 URL 计算资源绝对路径（兼容 GitHub Pages 子路径 /gk-workbench/ 与本地 /）
@@ -13,17 +12,42 @@
     return location.origin + p + rel;
   }
 
-  // 加时间戳绕过浏览器和 Service Worker 缓存
   const TF_URL = assetUrl('js/vendor/transformers.js?v=3');
   const WASM_DIR = assetUrl('js/vendor/');
-  // localModelPath 是模型根目录，pipeline 会自动拼接 MODEL_ID 子路径
   const MODEL_ROOT = assetUrl('models');
+
+  // ★ 诊断拦截器：捕获任何返回 HTML（404 软页面）的模型文件请求，直接显示到页面
+  function installFetchProbe() {
+    if (window.__asrProbeInstalled) return;
+    window.__asrProbeInstalled = true;
+    const orig = window.fetch.bind(window);
+    window.fetch = async function (url, opts) {
+      const resp = await orig(url, opts);
+      const u = typeof url === 'string' ? url : url && url.url;
+      if (
+        u &&
+        u.includes('whisper-tiny') &&
+        !u.endsWith('.onnx') &&
+        !u.endsWith('.wasm') &&
+        !u.endsWith('.bin')
+      ) {
+        const ct = resp.headers.get('content-type') || '';
+        if (resp.ok && ct.includes('text/html')) {
+          const msg = '模型文件返回 HTML（应为 JSON/文本）：\n' + u;
+          console.error('[ASR诊断]', msg);
+          if (App.toast) App.toast(msg, 'error', 15000);
+        }
+      }
+      return resp;
+    };
+  }
 
   let pipeP = null;
   let tfModule = null;
 
   async function loadTF() {
     if (tfModule) return tfModule;
+    installFetchProbe();
     // 从同源 vendor 目录加载 transformers.js
     tfModule = await import(/* @vite-ignore */ TF_URL);
     const { env } = tfModule;
@@ -62,7 +86,7 @@
       const hasLocal = await probeLocal();
       if (!hasLocal) {
         throw new Error(
-          '本地模型文件未找到（models/Xenova/whisper-tiny/）。\n' +
+          '本地模型文件未找到（models/Xenova/whisper-tiny/config.json）。\n' +
           '可能原因：GitHub Pages 尚未完成部署，请刷新页面重试。'
         );
       }
@@ -83,10 +107,9 @@
       return await pipeP;
     } catch (e) {
       pipeP = null;
+      // 完整显示原始报错，便于定位
       throw new Error(
-        '语音转文字引擎加载失败。\n' +
-        '原因：' +
-        (e.message ? e.message.slice(0, 400) : e) +
+        '语音转文字引擎加载失败。\n原因：\n' + (e && e.message ? e.message : e) +
         '\n\n建议：刷新页面重试（首次需下载模型约 90MB，之后走缓存）'
       );
     }
