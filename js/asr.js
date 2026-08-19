@@ -104,19 +104,6 @@
     return tfModule;
   }
 
-  async function probeLocal() {
-    try {
-      const url = MODEL_ROOT + '/' + MODEL_ID + '/config.json';
-      const r = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
-      if (!r.ok) return false;
-      const ct = r.headers.get('content-type') || '';
-      if (ct.includes('text/html')) return false;
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
   async function validateModelFiles() {
     const files = [
       'config.json',
@@ -160,8 +147,19 @@
       const T = await loadTF();
       const { pipeline } = T;
 
-      const hasLocal = await probeLocal();
-      if (!hasLocal) {
+      const head = await fetch(MODEL_ROOT + '/' + MODEL_ID + '/config.json', {
+        method: 'HEAD',
+        cache: 'no-cache',
+      }).catch((err) => err);
+
+      if (head instanceof Error) {
+        throw new Error(
+          '无法访问模型文件（' + (head.message || head) + '）。\n' +
+          '如果是离线/断网状态：请先【联网】打开本页并点一次语音按钮，' +
+          '让模型（约 90MB）下载并缓存下来，之后即可离线使用。'
+        );
+      }
+      if (!head.ok || (head.headers.get('content-type') || '').includes('text/html')) {
         throw new Error(
           '本地模型入口未找到：' + MODEL_ROOT + '/' + MODEL_ID + '/config.json\n' +
           '可能原因：GitHub Pages 尚未完成部署，请刷新页面重试。'
