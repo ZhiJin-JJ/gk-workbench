@@ -12,34 +12,55 @@
     return location.origin + p + rel;
   }
 
-  const TF_URL = assetUrl('js/vendor/transformers.js?v=3');
+  const TF_URL = assetUrl('js/vendor/transformers.js?v=4');
   const WASM_DIR = assetUrl('js/vendor/');
   const MODEL_ROOT = assetUrl('models');
 
-  // ★ 诊断拦截器：捕获任何返回 HTML（404 软页面）的模型文件请求，直接显示到页面
+  // 在页面顶部显示诊断信息（不依赖 App.toast 是否已加载）
+  function showDiag(msg) {
+    let el = document.getElementById('asr-diag');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'asr-diag';
+      el.style.cssText =
+        'position:fixed;top:0;left:0;right:0;z-index:999999;' +
+        'background:#c00;color:#fff;padding:12px 16px;' +
+        'white-space:pre-wrap;font-size:14px;line-height:1.5;';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+  }
+
+  // ★ 诊断拦截器：捕获任何返回 HTML（404 软页面）的资源请求，直接显示到页面
   function installFetchProbe() {
     if (window.__asrProbeInstalled) return;
     window.__asrProbeInstalled = true;
     const orig = window.fetch.bind(window);
     window.fetch = async function (url, opts) {
-      const resp = await orig(url, opts);
       const u = typeof url === 'string' ? url : url && url.url;
-      if (
-        u &&
-        u.includes('whisper-tiny') &&
-        !u.endsWith('.onnx') &&
-        !u.endsWith('.wasm') &&
-        !u.endsWith('.bin')
-      ) {
-        const ct = resp.headers.get('content-type') || '';
-        if (resp.ok && ct.includes('text/html')) {
-          const msg = '模型文件返回 HTML（应为 JSON/文本）：\n' + u;
-          console.error('[ASR诊断]', msg);
-          if (App.toast) App.toast(msg, 'error', 15000);
-        }
+      const resp = await orig(url, opts);
+      if (!u) return resp;
+      const looksLikeAsset =
+        /whisper-tiny|transformers\.js|\.wasm|\.onnx|\.bin|\.json|\.txt$/i.test(u);
+      const ct = (resp.headers && resp.headers.get('content-type')) || '';
+      if (looksLikeAsset && resp.ok && ct.includes('text/html')) {
+        const msg = '资源返回 HTML（应为模型/脚本文件）：\n' + u + '\n请把这个 URL 复制给 AI。';
+        console.error('[ASR诊断]', msg, { url: u, status: resp.status, ct });
+        showDiag(msg);
+        if (App.toast) App.toast(msg, 'error', 20000);
       }
       return resp;
     };
+  }
+
+  async function clearStaleCaches() {
+    try {
+      // 旧版 transformers-cache 可能缓存了错误的 HTML 响应，直接废弃
+      await caches.delete('transformers-cache');
+      await caches.delete('gk-workbench-v2');
+    } catch (e) {
+      // ignore
+    }
   }
 
   let pipeP = null;
@@ -48,6 +69,8 @@
   async function loadTF() {
     if (tfModule) return tfModule;
     installFetchProbe();
+    await clearStaleCaches();
+
     // 从同源 vendor 目录加载 transformers.js
     tfModule = await import(/* @vite-ignore */ TF_URL);
     const { env } = tfModule;
@@ -61,19 +84,73 @@
     // wasm 从同源 vendor 目录加载
     env.backends.onnx.wasm.wasmPaths = WASM_DIR;
 
+    // 使用自定义版本缓存，避免旧版 transformers-cache 里的坏数据反复导致 JSON 解析错误
+    env.useBrowserCache = false;
+    env.useCustomCache = true;
+    env.customCache = await (async () => {
+      const cache = await caches.open('transformers-cache-asr-v1');
+      const origPut = cache.put.bind(cache);
+      cache.put = async (req, resp) => {
+        const ct = (resp.headers && resp.headers.get('content-type')) || '';
+        if (ct.includes('text/html')) {
+          console.warn('[ASR缓存] 拒绝缓存 HTML:', req);
+          return;
+        }
+        return origPut(req, resp);
+      };
+      return cache;
+    })();
+
     return tfModule;
   }
 
   async function probeLocal() {
     try {
       const url = MODEL_ROOT + '/' + MODEL_ID + '/config.json';
-      const r = await fetch(url, { method: 'HEAD' });
+      const r = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
       if (!r.ok) return false;
       const ct = r.headers.get('content-type') || '';
       if (ct.includes('text/html')) return false;
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  async function validateModelFiles() {
+    const files = [
+      'config.json',
+      'preprocessor_config.json',
+      'generation_config.json',
+      'tokenizer_config.json',
+      'tokenizer.json',
+      'vocab.json',
+      'merges.txt',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx',
+    ];
+    const base = MODEL_ROOT + '/' + MODEL_ID + '/';
+    const bad = [];
+    await Promise.all(
+      files.map(async (f) => {
+        try {
+          const r = await fetch(base + f, { method: 'HEAD', cache: 'no-cache' });
+          if (!r.ok) {
+            bad.push(`${base + f} → HTTP ${r.status}`);
+          } else {
+            const ct = r.headers.get('content-type') || '';
+            if (ct.includes('text/html')) bad.push(`${base + f} → 返回 HTML`);
+          }
+        } catch (e) {
+          bad.push(`${base + f} → ${e && e.message ? e.message : e}`);
+        }
+      })
+    );
+    if (bad.length) {
+      throw new Error(
+        '以下模型文件无法访问（可能是路径错误或 Service Worker 把页面当成文件返回）：\n' +
+        bad.join('\n')
+      );
     }
   }
 
@@ -86,10 +163,13 @@
       const hasLocal = await probeLocal();
       if (!hasLocal) {
         throw new Error(
-          '本地模型文件未找到（models/Xenova/whisper-tiny/config.json）。\n' +
+          '本地模型入口未找到：' + MODEL_ROOT + '/' + MODEL_ID + '/config.json\n' +
           '可能原因：GitHub Pages 尚未完成部署，请刷新页面重试。'
         );
       }
+
+      // 预检所有必需模型文件，命中缺失文件时给出精确 URL
+      await validateModelFiles();
 
       // 使用标准模型 ID（含命名空间），localModelPath 会自动定位到同源目录
       const transcriber = await pipeline(
