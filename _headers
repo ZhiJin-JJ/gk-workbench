@@ -1,4 +1,7 @@
-# 代码类资源不缓存，保证每次修改立即生效（避免手机缓存旧 asr.js 反复报错）
+# HTML 入口与代码类资源不缓存，保证每次修改立即生效（避免浏览器/手机缓存旧代码反复报错）
+/*.html
+  Cache-Control: no-cache
+
 /js/*
   Cache-Control: no-cache
 
