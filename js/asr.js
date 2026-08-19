@@ -13,7 +13,8 @@
     return location.origin + p + rel;
   }
 
-  const TF_URL = assetUrl('js/vendor/transformers.js');
+  // 加时间戳绕过浏览器和 Service Worker 缓存
+  const TF_URL = assetUrl('js/vendor/transformers.js?v=3');
   const WASM_DIR = assetUrl('js/vendor/');
   // localModelPath 是模型根目录，pipeline 会自动拼接 MODEL_ID 子路径
   const MODEL_ROOT = assetUrl('models');
@@ -29,6 +30,7 @@
 
     // ★ 完全离线配置 ★
     env.allowRemoteModels = false;      // 禁止从 HuggingFace CDN 下载
+    env.allowLocalModels = true;        // 显式允许加载本地模型
     env.localModelPath = MODEL_ROOT;    // 模型从此目录加载（同源）
     // 单线程：GitHub Pages 无 COOP/COEP，SharedArrayBuffer 不可用
     env.backends.onnx.wasm.numThreads = 1;
