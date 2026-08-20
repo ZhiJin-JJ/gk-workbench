@@ -47,7 +47,7 @@ self.addEventListener('fetch', (e) => {
     return res;
   };
 
-  const isCode = req.mode === 'navigate' || /\.(?:html|js|css|webmanifest)$/i.test(url.pathname);
+  const isCode = req.mode === 'navigate' || /\.(?:html|js|mjs|css|webmanifest)$/i.test(url.pathname);
   const isModel = /\/models\//i.test(url.pathname) || /\.(?:onnx|wasm|bin)$/i.test(url.pathname);
 
   // 代码类资源（页面 / JS / CSS / manifest）走「网络优先」并强制跳过 HTTP 缓存：
