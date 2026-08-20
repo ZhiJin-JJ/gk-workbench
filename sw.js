@@ -61,16 +61,13 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 模型 / wasm / bin 文件：缓存优先，命中缺失时返回真实 404，
-  // 绝对不能回退到 index.html，否则 transformers.js 会把 HTML 当 JSON 解析。
+  // 模型 / wasm / bin 文件：直接透传网络，不做 SW 缓存。
+  // 原因：这些文件很大（wasm 21MB、onnx 数十 MB），若 SW 一边 clone 缓存一边
+  // 给 ORT 流式编译，会并发读同一响应体导致 body 被中止（ERR_HTTP2_PROTOCOL_ERROR）。
+  // 模型缓存交由 asr.js 的自定义 Cache（transformers-cache-asr-v1）负责，不经过此处 clone。
   if (isModel) {
     e.respondWith(
-      caches.match(req).then((hit) => {
-        if (hit) return hit;
-        return fetch(req)
-          .then(put)
-          .catch(() => new Response('Not found', { status: 404, statusText: 'Not Found' }));
-      })
+      fetch(req).catch(() => new Response('Not found', { status: 404, statusText: 'Not Found' }))
     );
     return;
   }
